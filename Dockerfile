@@ -1,25 +1,23 @@
-# Use Alpine Linux as the base image
-FROM alpine:3.19 # Specify a recent and stable Alpine version
+# Use a stable Alpine Linux base image
+FROM alpine:3.19
 
-# Update package lists and upgrade existing packages
-RUN apk update && apk upgrade
-
-# Install OpenJDK 8 JRE (Java Runtime Environment)
-# For development, you might need 'openjdk8-jdk' for the full JDK
-RUN apk add openjdk8=8.252.09-r0 # Pin to a specific version for reproducibility
+# Install dependencies and OpenJDK 8
+RUN apk update && \
+    apk add --no-cache openjdk8-jre=8.392.08-r0 && \
+    rm -rf /var/cache/apk/*
 
 # Set the JAVA_HOME environment variable
-ENV JAVA_HOME=/usr/lib/jvm/java-1.8-openjdk
+ENV JAVA_HOME=/usr/lib/jvm/java-1.8-openjdk \
+    PATH=$PATH:$JAVA_HOME/bin
 
 # Set working directory inside the container
 WORKDIR /app
 
-# Copy the jar file from build context to the container
-# (replace 'app.jar' with your actual JAR name if needed)
+# Copy the built JAR file into the container
 COPY target/*.jar app.jar
 
-# Expose default Spring Boot port
+# Expose the port your Spring Boot app uses
 EXPOSE 8080
 
-# Run the Spring Boot app
+# Run the Spring Boot application
 ENTRYPOINT ["java", "-jar", "app.jar"]
