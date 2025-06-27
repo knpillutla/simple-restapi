@@ -3,7 +3,11 @@ name: CI - Build + Terraform + Docker Push
 on:
   push:
     branches:
-      - '**'  # all branches
+      - develop
+      - main
+  pull_request:
+    branches:
+      - '**'  # run build on PRs targeting any branch
   workflow_dispatch:
 
 env:
@@ -12,9 +16,9 @@ env:
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
 jobs:
-  # Job 1: Build on ANY branch to verify Maven build success (no docker, no terraform)
+  # Build only on pull request events to check build success before merge
   build-only:
-    if: always()   # run on every push regardless of branch
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -29,7 +33,7 @@ jobs:
       - name: Build with Maven
         run: mvn clean package -DskipTests
 
-  # Job 2: Provision terraform & build+push docker ONLY on develop and main branches
+  # Provision & deploy only on pushes to develop and main
   provision-and-deploy:
     needs: build-only
     runs-on: ubuntu-latest
