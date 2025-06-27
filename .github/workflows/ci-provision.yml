@@ -21,11 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
+
       - name: Build and run tests with Maven
         run: mvn clean package
 
@@ -37,14 +39,17 @@ jobs:
         working-directory: infra/ecr
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
       - name: Set ECR environment name
         id: ecrenv
         run: |
@@ -53,6 +58,7 @@ jobs:
           else
             echo "env=dev" >> $GITHUB_OUTPUT
           fi
+
       - name: Check if ECR exists
         id: check_ecr
         run: |
@@ -62,6 +68,7 @@ jobs:
           else
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
+
       - name: Terraform Init & Apply (only if not exists)
         if: steps.check_ecr.outputs.exists == 'false'
         run: |
@@ -77,35 +84,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: temurin
           java-version: 17
+
       - name: Build and run tests with Maven
         run: mvn clean package
+
       - uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
       - uses: aws-actions/amazon-ecr-login@v1
-      - name: Set image tag and repo name
+
+      - name: Build, tag, and push Docker image
         run: |
+          IMAGE_URI=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_PREFIX }}
           COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
           BRANCH_NAME=$(echo ${GITHUB_BASE_REF:-${GITHUB_REF#refs/heads/}} | tr '/' '-')
-          if [[ "${GITHUB_BASE_REF}" == "master" ]]; then
-            ECR_ENV=prod
-          else
-            ECR_ENV=dev
-          fi
-          echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_ENV
-          echo "ECR_ENV=$ECR_ENV" >> $GITHUB_ENV
-          echo "BRANCH_TAG=${BRANCH_NAME}-${COMMIT_SHA}" >> $GITHUB_ENV
-          echo "ECR_REPO=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_PREFIX }}" >> $GITHUB_ENV
-      - name: Build Docker image
-        run: |
-          docker build -t $ECR_REPO:$BRANCH_TAG .
-      - name: Push Docker image
-        run: |
-          docker push $ECR_REPO:$BRANCH_TAG
+          IMAGE_TAG_COMMIT="${BRANCH_NAME}-${COMMIT_SHA}"
+          IMAGE_TAG_LATEST="${BRANCH_NAME}-latest"
+
+          echo "Building image: $IMAGE_URI:$IMAGE_TAG_COMMIT"
+          docker build -t $IMAGE_URI:$IMAGE_TAG_COMMIT .
+
+          echo "Tagging image as: $IMAGE_URI:$IMAGE_TAG_LATEST"
+          docker tag $IMAGE_URI:$IMAGE_TAG_COMMIT $IMAGE_URI:$IMAGE_TAG_LATEST
+
+          echo "Pushing image with both tags..."
+          docker push $IMAGE_URI:$IMAGE_TAG_COMMIT
+          docker push $IMAGE_URI:$IMAGE_TAG_LATEST
