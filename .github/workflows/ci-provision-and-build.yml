@@ -1,4 +1,4 @@
-name: CI - Build + Terraform + Docker Push
+name: CI - Build & Test + Terraform + Docker Push
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
       - main
   pull_request:
     branches:
-      - '**'  # run build on PRs targeting any branch
+      - '**'
   workflow_dispatch:
 
 env:
@@ -16,8 +16,7 @@ env:
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
 jobs:
-  # Build only on pull request events to check build success before merge
-  build-only:
+  build-and-test:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
 
@@ -30,12 +29,11 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Build with Maven
-        run: mvn clean package -DskipTests
+      - name: Build and run tests with Maven
+        run: mvn clean package
 
-  # Provision & deploy only on pushes to develop and main
   provision-and-deploy:
-    needs: build-only
+    needs: build-and-test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main'
 
