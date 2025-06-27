@@ -1,0 +1,116 @@
+name: CI - Build, Test, and Provision ECR
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - develop
+      - master
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY_PREFIX: yourapp
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+jobs:
+  # Build and test on push to branches other than develop/master
+  build-and-test:
+    if: |
+      github.event_name == 'push' &&
+      github.ref != 'refs/heads/develop' &&
+      github.ref != 'refs/heads/master'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build and run tests with Maven
+        run: mvn clean package
+
+  # Provision ECR if PR targets develop or master
+  provision-ecr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: infra/ecr
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set ECR environment name
+        id: ecrenv
+        run: |
+          if [[ "${{ github.base_ref }}" == "master" ]]; then
+            echo "env=prod" >> $GITHUB_OUTPUT
+          else
+            echo "env=dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -var="ecr_repo_name=${{ env.ECR_REPOSITORY_PREFIX }}-${{ steps.ecrenv.outputs.env }}" -var="environment=${{ steps.ecrenv.outputs.env }}" -var="aws_region=${{ env.AWS_REGION }}"
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -var="ecr_repo_name=${{ env.ECR_REPOSITORY_PREFIX }}-${{ steps.ecrenv.outputs.env }}" -var="environment=${{ steps.ecrenv.outputs.env }}" -var="aws_region=${{ env.AWS_REGION }}"
+
+  # Build, test, and push Docker image after provisioning ECR
+  build-test-and-push:
+    if: github.event_name == 'pull_request'
+    needs: provision-ecr
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Build and run tests with Maven
+        run: mvn clean package
+
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Set image tag variables
+        run: |
+          echo "COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
+          echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}} | tr '/' '-')" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_PREFIX }}-${{ env.BRANCH_NAME }}:${{ env.COMMIT_SHA }} .
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_PREFIX }}-${{ env.BRANCH_NAME }}:${{ env.COMMIT_SHA }}
