@@ -12,7 +12,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY_PREFIX: yourapp
+  ECR_REPOSITORY_PREFIX: krishnarepo
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
 
 jobs:
@@ -71,10 +71,10 @@ jobs:
         run: terraform init
 
       - name: Terraform Plan
-        run: terraform plan -var="ecr_repo_name=${{ env.ECR_REPOSITORY_PREFIX }}-${{ steps.ecrenv.outputs.env }}" -var="environment=${{ steps.ecrenv.outputs.env }}" -var="aws_region=${{ env.AWS_REGION }}"
+        run: terraform plan -var="ecr_repo_name=${{ env.ECR_REPOSITORY_PREFIX }}" -var="environment=${{ steps.ecrenv.outputs.env }}" -var="aws_region=${{ env.AWS_REGION }}"
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve -var="ecr_repo_name=${{ env.ECR_REPOSITORY_PREFIX }}-${{ steps.ecrenv.outputs.env }}" -var="environment=${{ steps.ecrenv.outputs.env }}" -var="aws_region=${{ env.AWS_REGION }}"
+        run: terraform apply -auto-approve -var="ecr_repo_name=${{ env.ECR_REPOSITORY_PREFIX }}" -var="environment=${{ steps.ecrenv.outputs.env }}" -var="aws_region=${{ env.AWS_REGION }}"
 
   # Build, test, and push Docker image after provisioning ECR
   build-test-and-push:
@@ -102,15 +102,21 @@ jobs:
 
       - uses: aws-actions/amazon-ecr-login@v1
 
-      - name: Set image tag variables
+      - name: Set image tag variables and ECR repo name
         run: |
           echo "COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)" >> $GITHUB_ENV
-          echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}} | tr '/' '-')" >> $GITHUB_ENV
+          echo "BRANCH_NAME=$(echo ${GITHUB_BASE_REF:-${GITHUB_REF#refs/heads/}} | tr '/' '-')" >> $GITHUB_ENV
+          if [[ "${GITHUB_BASE_REF}" == "master" ]]; then
+            echo "ECR_ENV=prod" >> $GITHUB_ENV
+          else
+            echo "ECR_ENV=dev" >> $GITHUB_ENV
+          fi
+          echo "ECR_REPOSITORY_NAME=${{ env.ECR_REPOSITORY_PREFIX }}" >> $GITHUB_ENV
 
       - name: Build Docker image
         run: |
-          docker build -t ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_PREFIX }}-${{ env.BRANCH_NAME }}:${{ env.COMMIT_SHA }} .
+          docker build -t ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_NAME }}:${{ env.COMMIT_SHA }} .
 
       - name: Push Docker image
         run: |
-          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_PREFIX }}-${{ env.BRANCH_NAME }}:${{ env.COMMIT_SHA }}
+          docker push ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_NAME }}:${{ env.COMMIT_SHA }}
