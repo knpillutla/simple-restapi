@@ -17,7 +17,9 @@ env:
 
 jobs:
   build-and-test:
-    if: github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master'
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -32,7 +34,7 @@ jobs:
         run: mvn clean package
 
   provision-ecr:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,7 +55,7 @@ jobs:
       - name: Set ECR environment name
         id: ecrenv
         run: |
-          if [[ "${{ github.base_ref }}" == "master" ]]; then
+          if [[ "${GITHUB_REF}" == "refs/heads/master" ]]; then
             echo "env=prod" >> $GITHUB_OUTPUT
           else
             echo "env=dev" >> $GITHUB_OUTPUT
@@ -79,7 +81,7 @@ jobs:
             -var="aws_region=${{ env.AWS_REGION }}"
 
   build-test-and-push:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
     needs: provision-ecr
     runs-on: ubuntu-latest
     steps:
@@ -106,7 +108,7 @@ jobs:
         run: |
           IMAGE_URI=${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY_PREFIX }}
           COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
-          BRANCH_NAME=$(echo ${GITHUB_BASE_REF:-${GITHUB_REF#refs/heads/}} | tr '/' '-')
+          BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr '/' '-')
           IMAGE_TAG_COMMIT="${BRANCH_NAME}-${COMMIT_SHA}"
           IMAGE_TAG_LATEST="${BRANCH_NAME}-latest"
 
