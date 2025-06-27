@@ -3,7 +3,8 @@ name: CI - Build, Test, and Provision ECR
 on:
   push:
     branches:
-      - '**'
+      - develop
+      - master
   pull_request:
     branches:
       - develop
@@ -17,9 +18,7 @@ env:
 
 jobs:
   build-and-test:
-    if: |
-      (github.event_name == 'pull_request') ||
-      (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master')
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -34,7 +33,7 @@ jobs:
         run: mvn clean package
 
   provision-ecr:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -81,7 +80,7 @@ jobs:
             -var="aws_region=${{ env.AWS_REGION }}"
 
   build-test-and-push:
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+    if: github.event_name == 'push'
     needs: provision-ecr
     runs-on: ubuntu-latest
     steps:
